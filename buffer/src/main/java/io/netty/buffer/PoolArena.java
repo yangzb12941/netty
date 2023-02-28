@@ -162,6 +162,9 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
             if (!needsNormalAllocation) {
                 assert s.doNotDestroy && s.elemSize == sizeIdx2size(sizeIdx) : "doNotDestroy=" +
                         s.doNotDestroy + ", elemSize=" + s.elemSize + ", sizeIdx=" + sizeIdx;
+                //当内存空间在PoolSubpage中分配成功
+                //后，可以得到一个指针handle。而Netty上层只会运用ByteBuf，那么
+                //ByteBuf是如何跟handle关联的呢？
                 long handle = s.allocate();
                 assert handle >= 0;
                 s.chunk.initBufWithSubpage(buf, null, handle, reqCapacity, cache);

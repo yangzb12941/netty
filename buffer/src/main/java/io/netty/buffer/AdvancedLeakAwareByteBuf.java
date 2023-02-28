@@ -33,6 +33,14 @@ import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 import java.nio.charset.Charset;
 
+/**
+ * AdvancedLeakAwareByteBuf是SimpleLeakAwareByteBuf的子类，
+ * 它 们 的 主 要 作 用 都 是 记 录 ByteBuf 的 调 用 轨 迹 。 区 别 在 于 ，
+ * AdvancedLeakAwareByteBuf 记 录 ByteBuf 的 所 有 操 作 ；
+ * SimpleLeakAwareByteBuf只在ByteBuf被销毁时告诉内存泄漏检测工具
+ * 把正常销毁的对象从检测缓存中移除，方便判断ByteBuf是否泄漏，不
+ * 记录ByteBuf的操作。
+ */
 final class AdvancedLeakAwareByteBuf extends SimpleLeakAwareByteBuf {
 
     // If set to true we will only record stacktraces for touch(...), release(...) and retain(...) calls.

@@ -135,6 +135,9 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         runAllTasksFrom(tailTasks);
     }
 
+    //当任务队列中有任务，且预唤醒标志为false时，需要调用selectNow()方法
+    //否则任务得不到及时处理，可能需要阻塞等待超时
+    //这一段判断在Netty4之后才加上，检测到有任务，并未设置预唤醒标识
     @Override
     protected boolean hasTasks() {
         return super.hasTasks() || !tailTasks.isEmpty();

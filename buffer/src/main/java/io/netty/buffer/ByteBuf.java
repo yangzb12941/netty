@@ -244,11 +244,50 @@ import java.nio.charset.UnsupportedCharsetException;
  *
  * Please refer to {@link ByteBufInputStream} and
  * {@link ByteBufOutputStream}.
+ *
+ * 在网络传输中，字节是基本单位，NIO使用ByteBuffer作为Byte字
+ * 节容器，但是其使用过于复杂。因此Netty写了一套Channel，代替了
+ * NIO 的 Channel 。 Netty 缓 冲 区 又 采 用 了 一 套 ByteBuf 代 替 了 NIO 的
+ * ByteBuffer。Netty的ByteBuf子类非常多，这里只对核心的ByteBuf进行详细的剖析。
+ *
+ *
+ *
+ * 读/写索引分开 -> AbstractByteBuf
+ * 读/写模式切换时不需要调用flip -> AbstractByteBuf
+ * 自动扩容 -> AbstractByteBuf
+ * 引用技术循环利用 -> AbstractReferenceCountedByteBuf
+ *                           ->PooledDirectByteBuf
+ * 内存池 -> PooledByteBuf<T>
+ *                           ->PooledHeapByteBuf
+ * 组合缓冲区视图-零拷贝 -> CompositeByteBuf
+ *                                           ->PooledDuplicatedByteBuf
+ * 派生ByteBuf -> AbstractPooledDirectByteBuf
+ *                                           ->PooledSlicedByteBuf
+ *
+ * NIO ByteBuffer只有一个位置指针position，在切换读/写状态
+ * 时，需要手动调用flip()方法或rewind()方法，以改变position的
+ * 值，而且ByteBuffer的长度是固定的，一旦分配完成就不能再进行扩
+ * 容和收缩，当需要放入或存储的对象大于ByteBuffer的容量时会发生
+ * 异常。每次编码时都要进行可写空间校验。
+ *
+ * Netty的AbstractByteBuf将读/写指针分离，同时在写操作时进行
+ * 了自动扩容。对其使用而言，无须关心底层实现，且操作简便、代码
+ * 无冗余。
+ *
+ * NIO ByteBuffer的duplicate()方法可以复制对象，复制后的对象
+ * 与原对象共享缓冲区的内存，但其位置指针独立维护。Netty的
+ * ByteBuf也采用了这功能，并设计了内存池。内存池是由一定大小和数
+ * 量的内存块ByteBuf组成的，这些内存块的大小默认为16MB。当从
+ * Channel中读取数据时，无须每次都分配新的ByteBuf，只需从大的内
+ * 存块中共享一份内存，并初始化其大小及独立维护读/写指针即可。
+ * Netty采用对象引用计数，需要手动回收。每复制一份ByteBuf或派生
+ * 出新的ByteBuf，其引用值都需要增加。
  */
 public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf>, ByteBufConvertible {
 
     /**
      * Returns the number of bytes (octets) this buffer can contain.
+     * 返回此缓冲区可以包含的字节数（八位字节）。
      */
     public abstract int capacity();
 
@@ -258,6 +297,10 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf>, 
      * than the current capacity, the buffer is appended with unspecified data whose length is
      * {@code (newCapacity - currentCapacity)}.
      *
+     * 调整此缓冲区的容量。如果｛@code newCapacity｝小于当前容量，则此缓冲区的内容将被截断。
+     * 如果｛@code newCapacity｝大于当前容量，则缓冲区将附加长度为｛
+     * @ccode（newCapacity-currentCapacity）｝的未指定数据。
+     *
      * @throws IllegalArgumentException if the {@code newCapacity} is greater than {@link #maxCapacity()}
      */
     public abstract ByteBuf capacity(int newCapacity);
@@ -265,11 +308,14 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf>, 
     /**
      * Returns the maximum allowed capacity of this buffer. This value provides an upper
      * bound on {@link #capacity()}.
+     *
+     * 返回此缓冲区允许的最大容量。该值提供了｛@link capacity（）｝的上限。
      */
     public abstract int maxCapacity();
 
     /**
      * Returns the {@link ByteBufAllocator} which created this buffer.
+     * 返回创建此缓冲区的｛@link ByteBufAllocator｝。
      */
     public abstract ByteBufAllocator alloc();
 
@@ -279,6 +325,9 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf>, 
      *
      * @deprecated use the Little Endian accessors, e.g. {@code getShortLE}, {@code getIntLE}
      * instead of creating a buffer with swapped {@code endianness}.
+     *
+     * 返回此缓冲区的<a href=“https://wikipedia.orgwikiEndianness”>endianness<a>@不推荐使用Little Endian访问器，
+     * 例如｛@code getShortLE｝、｛@ccode getIntLE｝，而不是使用交换的｛@code-endianness｝创建缓冲区。
      */
     @Deprecated
     public abstract ByteOrder order();
@@ -293,6 +342,12 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf>, 
      *
      * @deprecated use the Little Endian accessors, e.g. {@code getShortLE}, {@code getIntLE}
      * instead of creating a buffer with swapped {@code endianness}.
+     *
+     * 返回具有指定｛@code endianness｝的缓冲区，该缓冲区共享此缓冲区的整个区域、索引和标记。
+     * 修改返回缓冲区或此缓冲区的内容、索引或标记会影响彼此的内容、指数和标记。
+     * 如果指定的｛@code endianness｝与此缓冲区的字节顺序相同，则此方法可以返回｛@codethis｝。
+     * 此方法不会修改此缓冲区的｛@code readerIndex｝或｛@codewriterIndex｝@不推荐使用Little Endian访问器，
+     * 例如｛@code getShortLE｝、｛@ccode getIntLE｝，而不是使用交换的｛@code-endianness｝创建缓冲区。
      */
     @Deprecated
     public abstract ByteBuf order(ByteOrder endianness);

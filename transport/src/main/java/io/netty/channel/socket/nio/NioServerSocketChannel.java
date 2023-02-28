@@ -44,6 +44,14 @@ import java.util.Map;
 /**
  * A {@link io.netty.channel.socket.ServerSocketChannel} implementation which uses
  * NIO selector based implementation to accept new connections.
+ *
+ * NioServerSocketChannel是AbstractNioMessageChannel的子类，
+ * 由于NioServerSocketChannel由服务端使用，并且只负责监听Socket的接入，
+ * 不关心I/O的读/写，所以与NioSocketChannel相比要简单很
+ * 多。它封装了NIO中的ServerSocketChannel，并通过newSocket()方法
+ * 打 开 ServerSocket Channel 。 它 的 多 路 复 用 器 注 册 与
+ * NioSocketChannel 的 多 路 复 用 器 注 册 一 样 ， 由 父 类 AbstractNioChannel实现。
+ * 下面重点关注它是如何监听新加入的连接的（需要由doReadMessages()方法来完成）。
  */
 public class NioServerSocketChannel extends AbstractNioMessageChannel
                              implements io.netty.channel.socket.ServerSocketChannel {
@@ -151,10 +159,12 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     @Override
     protected int doReadMessages(List<Object> buf) throws Exception {
+        //调用serverSocketChannel.accept()监听新加入的连接
         SocketChannel ch = SocketUtils.accept(javaChannel());
 
         try {
             if (ch != null) {
+                //每个新连接都会构建一个NioSocketChannel
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
             }
@@ -162,6 +172,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
             logger.warn("Failed to create a new channel from an accepted socket.", t);
 
             try {
+                //若连接出现异常，则关闭
                 ch.close();
             } catch (Throwable t2) {
                 logger.warn("Failed to close a socket.", t2);

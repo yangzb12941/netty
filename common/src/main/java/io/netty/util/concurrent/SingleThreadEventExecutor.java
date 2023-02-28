@@ -454,39 +454,60 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     /**
      * Poll all tasks from the task queue and run them via {@link Runnable#run()} method.  This method stops running
      * the tasks in the task queue and returns if it ran longer than {@code timeoutNanos}.
+     *
+     * 轮询任务队列中的所有任务，并通过｛@link Runnablerun（）｝方法运行它们。
+     * 此方法停止运行任务队列中的任务，如果运行时间超过｛@code timeoutNanos｝，则返回。
+     *
+     * 主要目的是执行taskQueue队列和定时任务队列中的任务，如心跳检测、异步写操作等。
+     * NioEventLoop会根据ioRatio（I/O事件与taskQueue运行的时间占比）计算任务执行
+     * 时 长 。 由 于 一 个 NioEventLoop 线 程 需 要 管 理 很 多 Channel ， 这 些
+     * Channel的任务可能非常多，若要都执行完，则I/O事件可能得不到及时处理，
+     * 因此每执行64个任务后就会检测执行任务的时间是否已用
+     * 完，如果执行任务的时间用完了，就不再执行后续的任务了。
      */
     protected boolean runAllTasks(long timeoutNanos) {
+        //从定时任务队列中将达到执行时间的task丢到taskQueue队列中
         fetchFromScheduledTaskQueue();
+        //从taskQueue队列中获取task
         Runnable task = pollTask();
+        //若task为空
         if (task == null) {
+            //执行tailTasks 中的task,做收尾工作
             afterRunningAllTasks();
             return false;
         }
-
+        //获取执行截止时间
         final long deadline = timeoutNanos > 0 ? ScheduledFutureTask.nanoTime() + timeoutNanos : 0;
+        //执行的任务个数
         long runTasks = 0;
+        //运行task的最后时间
         long lastExecutionTime;
+        //死循环
         for (;;) {
+            //运行task的run()方法
             safeExecute(task);
 
             runTasks ++;
 
             // Check timeout every 64 tasks because nanoTime() is relatively expensive.
             // XXX: Hard-coded value - will make it configurable if it is really a problem.
+            //每64个任务检查一次超时，因为nanoTime（）相对昂贵。
+            // XXX： 硬编码值-如果确实有问题，将使其可配置。
             if ((runTasks & 0x3F) == 0) {
                 lastExecutionTime = ScheduledFutureTask.nanoTime();
                 if (lastExecutionTime >= deadline) {
                     break;
                 }
             }
-
+            //再从taskQueue队列中获取task
             task = pollTask();
+            //若没有task了，则更新最后执行的时间，并跳出循环
             if (task == null) {
                 lastExecutionTime = ScheduledFutureTask.nanoTime();
                 break;
             }
         }
-
+        //做收尾工作
         afterRunningAllTasks();
         this.lastExecutionTime = lastExecutionTime;
         return true;
@@ -810,6 +831,16 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         return isTerminated();
     }
 
+    /**
+     * 在NioSocketChannel中，每个Channel都有一条NioEventLoop线程与之对
+     * 应，在NioEventLoop的父类SingleThreadEventExecutor中有个队列属
+     * 性 ， 叫 taskQueue ， 它 主 要 通 过 SingleThreadEventExecutor 的
+     * execute() 方 法 存 放 非 EventLoop 线 程 的 任 务 ， 包 括 WriteTask 和
+     * WriteAddFlushTask这两种WriteTask。当调用添加任务时，会唤醒
+     * EventLoop线程，从而I/O线程会去调用这些任务的run()方法，并把结果写回Socket通道。
+     *
+     * @param task
+     */
     @Override
     public void execute(Runnable task) {
         execute0(task);

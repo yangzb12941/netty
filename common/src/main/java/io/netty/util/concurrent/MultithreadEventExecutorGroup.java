@@ -73,20 +73,23 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         checkPositive(nThreads, "nThreads");
 
         if (executor == null) {
+            //创建线程执行器及线程工厂
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
-
+        //根据线程数构建EventExecutor数组
         children = new EventExecutor[nThreads];
 
         for (int i = 0; i < nThreads; i ++) {
             boolean success = false;
             try {
+                //初始化线程组中的线程，由NioEventLoopGroup创建NioEventLoop类实例
                 children[i] = newChild(executor, args);
                 success = true;
             } catch (Exception e) {
                 // TODO: Think about if this is a good exception type
                 throw new IllegalStateException("failed to create a child event loop", e);
             } finally {
+                //初始化失败时，需要优雅的关闭，清理资源
                 if (!success) {
                     for (int j = 0; j < i; j ++) {
                         children[j].shutdownGracefully();
@@ -95,6 +98,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                     for (int j = 0; j < i; j ++) {
                         EventExecutor e = children[j];
                         try {
+                            //当线程没有终止，需要等待终止
                             while (!e.isTerminated()) {
                                 e.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
                             }
@@ -107,7 +111,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                 }
             }
         }
-
+        //根据线程数创建选择器，选择器主要适用于next()方法。
         chooser = chooserFactory.newChooser(children);
 
         final FutureListener<Object> terminationListener = new FutureListener<Object>() {
@@ -118,11 +122,11 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                 }
             }
         };
-
+        //为每个EventLoop线程添加线程终止监听器
         for (EventExecutor e: children) {
             e.terminationFuture().addListener(terminationListener);
         }
-
+        //创建执行器数组只读副本，在迭代查询时使用
         Set<EventExecutor> childrenSet = new LinkedHashSet<EventExecutor>(children.length);
         Collections.addAll(childrenSet, children);
         readonlyChildren = Collections.unmodifiableSet(childrenSet);
@@ -132,6 +136,20 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         return new DefaultThreadFactory(getClass());
     }
 
+    /**
+     * 通过next()方法获取NioEventLoop线程，最终
+     * 会调用其MultithreadEventExecutorGroup的next()方法，委托
+     * 选择器EventExecutorChooser。具体使用哪种选择器对象取决
+     * 于MultithreadEventExecutorGroup的构造方法中使用的策略模式。
+     *
+     * 根据线程条数是否为2的幂次来选择策略，若是，则选择器为
+     * PowerOfTwoEventExecutorChooser，其选择策略使用与运算计算下一个选择的线程组的下标index。
+     *
+     * 若不是，则选择器为GenericEventExecutorChooser，其选择策略
+     * 为使用求余的方法计算下一个线程在线程组中的下标index。其中，
+     * PowerOfTwoEventExecutorChooser选择器的与运算性能会更好。
+     * @return
+     */
     @Override
     public EventExecutor next() {
         return chooser.next();

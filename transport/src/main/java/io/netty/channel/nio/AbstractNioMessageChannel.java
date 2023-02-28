@@ -31,6 +31,9 @@ import java.util.List;
 
 /**
  * {@link AbstractNioChannel} base class for {@link Channel}s that operate on messages.
+ * AbstractNioMessageChannel写入和读取的数据类型是Object，而
+ * 不是字节流，那么它的读/写方法与AbstractNioByteChannel的读/写
+ * 方法有哪些不同呢？下面进行详细讲解。
  */
 public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
     boolean inputShutdown;
@@ -63,12 +66,20 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
         private final List<Object> readBuf = new ArrayList<Object>();
 
+        /**
+         * 在读数据时，AbstractNioMessageChannel数据不存在粘包问题，
+         * 因此AbstractNioMessageChannel在read()方法中先循环读取数据包，
+         * 再触发channelRead事件。
+         */
         @Override
         public void read() {
             assert eventLoop().inEventLoop();
+            //获取Channel的配置对象
             final ChannelConfig config = config();
             final ChannelPipeline pipeline = pipeline();
+            //获取计算机内存分配Handle
             final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+            //清空上次记录
             allocHandle.reset(config);
 
             boolean closed = false;
@@ -76,7 +87,13 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             try {
                 try {
                     do {
+                        /**
+                         * 调用子类的doReadMessages()方法
+                         * 读取数据包，并放入readBuf链表中
+                         * 当成功读取时返回1
+                         */
                         int localRead = doReadMessages(readBuf);
+                        //链路关闭，跳出循环
                         if (localRead == 0) {
                             break;
                         }
@@ -84,23 +101,28 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                             closed = true;
                             break;
                         }
-
+                        //记录成功读取的次数
                         allocHandle.incMessagesRead(localRead);
-                    } while (continueReading(allocHandle));
+                    } while (continueReading(allocHandle));//默认不超过16次
                 } catch (Throwable t) {
                     exception = t;
                 }
 
                 int size = readBuf.size();
+                //循环处理读取的数据包
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
+                    //触发channelRead事件
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
                 readBuf.clear();
+                //记录当前读取记录，以便下次分配合理内存
                 allocHandle.readComplete();
+                //触发readComplete()事件
                 pipeline.fireChannelReadComplete();
 
                 if (exception != null) {
+                    //处理Channel异常关闭
                     closed = closeOnReadError(exception);
 
                     pipeline.fireExceptionCaught(exception);
@@ -108,6 +130,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
                 if (closed) {
                     inputShutdown = true;
+                    //处理Channel正常关闭
                     if (isOpen()) {
                         close(voidPromise());
                     }
@@ -119,16 +142,29 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 // * The user called Channel.read() or ChannelHandlerContext.read() in channelReadComplete(...) method
                 //
                 // See https://github.com/netty/netty/issues/2254
+                //读操作完毕，且没有配置自动读
                 if (!readPending && !config.isAutoRead()) {
+                    //移除读操作事件
                     removeReadOp();
                 }
             }
         }
     }
 
+    /**
+     * 在写数据时，AbstractNioMessageChannel数据逻辑简单。它把缓
+     * 存outboundBuffer中的数据包依次写入Channel中。如果Channel写满
+     * 了，或循环写、默认写的次数为子类Channel属性METADATA中的
+     * defaultMaxMessagesPerRead次数，则在Channel的SelectionKey上设
+     * 置OP_WRITE事件，随后退出，其后OP_WRITE事件处理逻辑和Byte字节
+     * 流写逻辑一样。
+     * @param in
+     * @throws Exception
+     */
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         final SelectionKey key = selectionKey();
+        //获取Key兴趣集
         final int interestOps = key.interestOps();
 
         int maxMessagesPerWrite = maxMessagesPerWrite();
@@ -139,13 +175,16 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             }
             try {
                 boolean done = false;
+                //获取配置中循环写的最大次数
                 for (int i = config().getWriteSpinCount() - 1; i >= 0; i--) {
+                    //调用子类方法，若msg写成功了，则返回true
                     if (doWriteMessage(msg, in)) {
                         done = true;
                         break;
                     }
                 }
-
+                //若发送成功，则将其从缓存链表中移除
+                //继续发送下一个缓存节点数据
                 if (done) {
                     maxMessagesPerWrite--;
                     in.remove();
@@ -153,6 +192,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                     break;
                 }
             } catch (Exception e) {
+                //当出现异常时，判断是否继续写
                 if (continueOnWriteError()) {
                     maxMessagesPerWrite--;
                     in.remove(e);
@@ -163,11 +203,13 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
         }
         if (in.isEmpty()) {
             // Wrote all messages.
+            //数据已全部发送完毕，从兴趣集中移除OP_WRITE事件
             if ((interestOps & SelectionKey.OP_WRITE) != 0) {
                 key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
             }
         } else {
             // Did not write all messages.
+            //将OP_WRITE事件添加到兴趣事件集中
             if ((interestOps & SelectionKey.OP_WRITE) == 0) {
                 key.interestOps(interestOps | SelectionKey.OP_WRITE);
             }

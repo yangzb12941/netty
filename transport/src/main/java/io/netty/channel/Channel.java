@@ -73,6 +73,13 @@ import java.net.SocketAddress;
  * It is important to call {@link #close()} or {@link #close(ChannelPromise)} to release all
  * resources once you are done with the {@link Channel}. This ensures all resources are
  * released in a proper way, i.e. filehandles.
+ *
+ * Channel是Netty抽象出来的对网络I/O进行读/写的相关接口，与
+ * NIO中的Channel接口相似。Channel的主要功能有网络I/O的读/写、客
+ * 户端发起连接、主动关闭连接、关闭链路、获取通信双方的网络地址
+ * 等。Channel接口下有一个重要的抽象类——AbstractChannel，一些
+ * 公共的基础方法都在这个抽象类中实现，一些特定功能可以通过各个
+ * 不同的实现类去实现。最大限度地实现了功能和接口的重用。
  */
 public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparable<Channel> {
 

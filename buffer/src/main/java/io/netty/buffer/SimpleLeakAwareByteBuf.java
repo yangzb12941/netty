@@ -22,6 +22,11 @@ import io.netty.util.internal.ObjectUtil;
 
 import java.nio.ByteOrder;
 
+/**
+ * SimpleLeakAwareByteBuf只在ByteBuf被销毁时告诉内存泄漏检测工具
+ * 把正常销毁的对象从检测缓存中移除，方便判断ByteBuf是否泄漏，不
+ * 记录ByteBuf的操作。
+ */
 class SimpleLeakAwareByteBuf extends WrappedByteBuf {
 
     /**

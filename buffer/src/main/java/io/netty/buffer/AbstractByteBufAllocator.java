@@ -248,14 +248,30 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         return StringUtil.simpleClassName(this) + "(directByDefault: " + directByDefault + ')';
     }
 
+    /**
+     * 当threshold小于藏值（4MB）时，新的容量(newCapacity)都是以64为基数向左移位计算出来的
+     * 通过循环，每次移动1位，直到 newCapacity>=minNewCapacity
+     * 如果计算出来的newCapacity大于maxCapacity，则返回maxCapacity
+     * 否则返回newCapacity
+     * 当minNewCapacity>=阈值（4MB）时
+     * 先计算minNewCapacity/threshOld*threshold的大小
+     * 如果这个值加上一个threshold（4MB）大于newCapacity
+     * 则newCapacity的值取maxCapacity；
+     * 否则newCapacity—minNewCapacity/threshold*threshold+threshold
+     * @param minNewCapacity
+     * @param maxCapacity
+     * @return
+     */
     @Override
     public int calculateNewCapacity(int minNewCapacity, int maxCapacity) {
         checkPositiveOrZero(minNewCapacity, "minNewCapacity");
+        //检查minNewCapacity是否大于0
         if (minNewCapacity > maxCapacity) {
             throw new IllegalArgumentException(String.format(
                     "minNewCapacity: %d (expected: not greater than maxCapacity(%d)",
                     minNewCapacity, maxCapacity));
         }
+        //阈值4MB
         final int threshold = CALCULATE_THRESHOLD; // 4 MiB page
 
         if (minNewCapacity == threshold) {
@@ -264,7 +280,13 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
 
         // If over threshold, do not double but just increase by threshold.
         if (minNewCapacity > threshold) {
+            //先获取离minNewCapacity最近的4MB的整数倍值，且小于minNewCapacity
             int newCapacity = minNewCapacity / threshold * threshold;
+            // 此处新的容量值不会倍增，因为4MB以上内存比较大
+            // 如果继续倍增，则可能带来外的内存浪费
+            // 只能在此基础上+4MB，并判断是否大于maxCapacity
+            // 若大于则返回maxCapacity
+            // 否则返回newCapacity+threshold
             if (newCapacity > maxCapacity - threshold) {
                 newCapacity = maxCapacity;
             } else {
@@ -274,6 +296,8 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         }
 
         // 64 <= newCapacity is a power of 2 <= threshold
+        // 当小于4MB时，以64为基础倍增
+        // 64 -> 128 -> 256 ... 直到满足最小容量要求，并以此容量值作为新的容量值
         final int newCapacity = MathUtil.findNextPositivePowerOfTwo(Math.max(minNewCapacity, 64));
         return Math.min(newCapacity, maxCapacity);
     }

@@ -102,6 +102,8 @@ public class DefaultThreadFactory implements ThreadFactory {
 
     @Override
     public Thread newThread(Runnable r) {
+        //包装FastThreadLocalThread 线程，线程名字的前缀为NioEventLoopGroup
+        //服务启动后可通过eclipse或arthas等工具查看。
         Thread t = newThread(FastThreadLocalRunnable.wrap(r), prefix + nextId.incrementAndGet());
         try {
             if (t.isDaemon() != daemon) {

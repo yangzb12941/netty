@@ -131,7 +131,70 @@ import java.util.PriorityQueue;
  * 3) merge continuous avail runs
  * 4) save the merged run
  *
+ * Netty引入了jemalloc内存分配算法。
+ * Netty内存管理层级结构如图6-1所示，其中右边是内存管理的3个层
+ * 级，分别是本地线程缓存、分配区arena、系统内存；左边是内存块区
+ * 域，不同大小的内存块对应不同的分配区，总体的分配策略如下。
+ *
+ * • 为了避免线程间锁的竞争和同步，每个I/O线程都对应一个
+ * PoolThreadCache，负责当前线程使用非大内存的快速申请和释放。
+ *
+ * • 当从PoolThreadCache中获取不到内存时，就从PoolArena的内
+ * 存池中分配。当内存使用完并释放时，会将其放到PoolThreadCache
+ * 中，方便下次使用。若从PoolArena的内存池中分配不到内存，则从堆
+ * 内外内存中申请，申请到的内存叫PoolChunk。当内存块的大小默认为
+ * 12MB时，会被放入PoolArea的内存池中，以便重复利用。当申请大内
+ * 存时（超过了PoolChunk的默认内存大小12MB），直接在堆外或堆内内
+ * 存中创建（不归PoolArea管理），用完后直接回收。本书只介绍Netty
+ * 的内存池可重复利用的内存。
+ *
+ *    ++++++++++++++++++++
+ *    +                  +     thread              thread
+ *    +  小于512B的对象    +  PoolThreadCache      PoolThreadCache
+ *    +                  +
+ *    +                  +
+ *    + 大于或等于512B且   +
+ *    + 小于8KB的对象      +
+ *    +                  +    PoolArena           PoolArena
+ *    +                  +
+ *    + 大于或等于8KB且小于 +
+ *    + 或等于16MB的对象   +
+ *    +                  +
+ *    +------------------+
+ *    +                  +
+ *    + 大于16MB的对象     +          堆外内存PoolChunk
+ *    +                  +
+ *    ++++++++++++++++++++
+ *
+ * （1）Netty在具体分配内存之前，会先获取本次内存分配的大
+ * 小。具体的内存分配由PoolArena统一管理，先从线程本地缓存
+ * PoolThreadCache中获取，线程本地缓存采用固定长度队列缓存此线程
+ * 之前用过的内存。
+ * （2）若本地线程无缓存，则判断本次需要分配的内存大小，若小
+ * 于512B，则先从PoolArena的tinySubpagePools缓存中获取；若大于或
+ * 等于512B且小于8KB，则先从smallSubpagePools缓存中获取，上述两
+ * 种情况缓存的对象都是PoolChunk分配的PoolSubpage；若大于或等于
+ * 8KB或在SubpagePools缓存中分配失败，则从PoolChunkList中查找可
+ * 分配的PoolChunk。
+ * （3）若PoolChunkList分配失败，则创建新的PoolChunk，由
+ * PoolChunk完成具体的分配工作，最终分配成功后，加入对应的
+ * PoolChunkList中。若分配的是小于8KB的内存，则需要把从PoolChunk
+ * 中分配的PoolSubpage加入PoolArena的SubpagePools中。
+ *
+ * PoolArena(内存分配器)
+ *   PoolThreadCache(线程本地缓存)
+ *     MemoryRegionCache
+ *       Queue<Entry<T>> queue
+ *   PoolSubPage[] tinySubpagePools(小于512B内存分配缓冲区)
+ *   PoolSubpage[] smallSubpagePools(大于或等于512B且小于8KB内存分配缓冲区)
+ *   PoolChunkList q050
+ *     PollChunk
+ *        PoolSubpage
  */
+//可以把Chunk看作一块大的内存，这块内存被分成了很多小块的内
+//存，Netty在使用内存时，会用到其中一块或多块小内存。
+// PoolChunk内部维护了一棵平衡二叉树，默认由2048个page组成，
+//一个page默认为8KB，整个Chunk默认为16MB
 final class PoolChunk<T> implements PoolChunkMetric {
     private static final int SIZE_BIT_LENGTH = 15;
     private static final int INUSED_BIT_LENGTH = 1;
@@ -160,6 +223,12 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     /**
      * manage all subpages in this chunk
+     * 管理此区块中的所有子页面
+     *
+     * 它的数组长度与 PoolChunk 的 page
+     * 节点数一致，都是2048，由于它只分配小于8KB的数据，且 PoolChunk
+     * 的每个 page 节点只能分配一种 PoolSubpage ，因此 subpages 的下标与
+     * PoolChunk的page节点的偏移位置是一一对应的。
      */
     private final PoolSubpage<T>[] subpages;
 
@@ -186,6 +255,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
     PoolChunk<T> next;
 
     // TODO: Test if adding padding helps under contention
+    // 测试在争用情况下添加填充是否有帮助
     //private long pad0, pad1, pad2, pad3, pad4, pad5, pad6, pad7;
 
     @SuppressWarnings("unchecked")
@@ -325,18 +395,25 @@ final class PoolChunk<T> implements PoolChunkMetric {
         return true;
     }
 
+    /**
+     *
+     * @param runSize 申请的内存在PoolChunck二叉树中的高度值，若内存为8KB，则runSize为11
+     * @return
+     */
     private long allocateRun(int runSize) {
         int pages = runSize >> pageShifts;
         int pageIdx = arena.pages2pageIdx(pages);
 
         synchronized (runsAvail) {
             //find first queue which has at least one big enough run
+            //找到至少有一个足够大的运行的第一个队列
             int queueIdx = runFirstBestFit(pageIdx);
             if (queueIdx == -1) {
                 return -1;
             }
 
             //get run with min offset in this queue
+            //使用此队列中的最小偏移量运行
             LongPriorityQueue queue = runsAvail[queueIdx];
             long handle = queue.poll();
 
@@ -572,7 +649,10 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     void initBufWithSubpage(PooledByteBuf<T> buf, ByteBuffer nioBuffer, long handle, int reqCapacity,
                             PoolThreadCache threadCache) {
+        // 用int强转，取handle的低32位，低32位存储的是二叉树节点的位置
         int runOffset = runOffset(handle);
+        // 右移32位并强制转化为int型，相当于获取handle的高32位。
+        // 即PoolSubpage的内存段相对于page的偏移量
         int bitmapIdx = bitmapIdx(handle);
 
         PoolSubpage<T> s = subpages[runOffset];
@@ -580,6 +660,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
         assert reqCapacity <= s.elemSize : reqCapacity + "<=" + s.elemSize;
 
         int offset = (runOffset << pageShifts) + bitmapIdx * s.elemSize;
+        //计算偏移量，offset的值为内存对齐偏移量
         buf.init(this, nioBuffer, handle, offset, reqCapacity, s.elemSize, threadCache);
     }
 

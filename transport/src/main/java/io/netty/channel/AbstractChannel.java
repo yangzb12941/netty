@@ -39,6 +39,21 @@ import java.util.concurrent.RejectedExecutionException;
 
 /**
  * A skeletal {@link Channel} implementation.
+ *
+ * AbstractChannel融合了Netty的线程模型、事件驱动模型，但由
+ * 于网络I/O模型及协议种类比较多，除了TCP协议，Netty还支持很多其
+ * 他连接协议，并且每种协议都有传统阻塞I/O和NIO（非阻塞I/O）版本
+ * 的区别。不同协议、不同阻塞类型的连接有不同的Channel类型与之对
+ * 应，因此AbstractChannel并没有与网络I/O直接相关的操作。每种阻
+ * 塞与非阻塞Channel在AbstractChannel上都会继续抽象一层，如
+ * AbstractNioChannel，既是Netty重新封装的Epoll SocketChannel实
+ * 现，其他非阻塞I/O Channel的抽象层，接下来分别对这些核心
+ * Channel进行详细讲解。
+ *
+ * EventLoop 主从reactor线程模型
+ * DefaultChannelPipeline 事件驱动
+ * Unsafe Channel注册、端口绑定监听、链路连接与关闭、I/O数据的读/写
+ * ChannelId 全局唯一
  */
 public abstract class AbstractChannel extends DefaultAttributeMap implements Channel {
 
@@ -46,14 +61,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     private final Channel parent;
     private final ChannelId id;
+    // 实现具体的连接与读/写数据，如网络的读/写、链路
+    // 关闭、发起连接等。命名为Unsafe表示不对外提供使用，并非不安全。
     private final Unsafe unsafe;
-    private final DefaultChannelPipeline pipeline;
+    private final DefaultChannelPipeline pipeline;//一个Handler的容器，也可以将其理解为一个Handler链。Handler主要处理数据的编/解码和业务逻辑。
     private final VoidChannelPromise unsafeVoidPromise = new VoidChannelPromise(this, false);
     private final CloseFuture closeFuture = new CloseFuture(this);
 
     private volatile SocketAddress localAddress;
     private volatile SocketAddress remoteAddress;
-    private volatile EventLoop eventLoop;
+    private volatile EventLoop eventLoop;//每个Channel对应一条EventLoop线程。
     private volatile boolean registered;
     private boolean closeInitiated;
     private Throwable initialCloseCause;
@@ -461,6 +478,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             return remoteAddress0();
         }
 
+        /**
+         * 当将 NioSocketChannel 注册到Selector上时，有部分代码需要解
+         * 读 ， NioSocketChannel 对 应 的 NioEventLoop 线 程 在 未 启 动 时 ，
+         * eventLoop.inEventLoop()会返回false。若Worker的线程数为16，则
+         * 在前面16个NioSocketChannel注册时，都会把注册看作一个Task并添
+         * 加到NioEventLoop的队列中，同时启动NioEventLoop队列，唤醒
+         * Selector。这部分功能在AbstractUnsafe的register()方法中
+         * @param eventLoop
+         * @param promise
+         */
         @Override
         public final void register(EventLoop eventLoop, final ChannelPromise promise) {
             ObjectUtil.checkNotNull(eventLoop, "eventLoop");
@@ -497,28 +524,46 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
         }
 
+        /**
+         * 在 AbstractUnsafe 的 register0()方法中有关于如何将用户自定义
+         * 的 Handler 添加到 NioSocketChannel的 Handler 链表中的方法
+         * @param promise
+         */
         private void register0(ChannelPromise promise) {
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
                 // call was outside of the eventLoop
+                // 检查通道是否仍处于打开状态，因为当寄存器调用在eventLoop之外时，通道可能会同时关闭
                 if (!promise.setUncancellable() || !ensureOpen(promise)) {
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+                //此方法调用 AbstractNioChannel 的doRegister()方法
+                //把 NioServerSocketChannel 和 NioSocketChannel的注册抽象出来
                 doRegister();
                 neverRegistered = false;
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
-                pipeline.invokeHandlerAddedIfNeeded();
 
+                // 在 ServerBootstrapAcceptor 的 channelRead()方法中把用户定义的Handler追加到Channel的管道中
+                // (child.pipeline().addLast(childHandler))，此方法会追加一个回调，此时正好会触发这个回调。
+                // if(!registered){
+                //  newCtx.setAddPending();
+                //  callHandlerCallbackLater(newCtx,true);
+                //  return this;
+                // }
+                pipeline.invokeHandlerAddedIfNeeded();
+                //此方法会触发promise的监听
                 safeSetSuccess(promise);
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
                 if (isActive()) {
                     if (firstRegistration) {
+                        //此方法会触发HeadContext的channelActive()方法，并最终调用AbstractNioChannel的doBeginRead()
+                        //方法注册监听OP_READ事件。
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
                         // This channel was registered before and autoRead() is set. This means we need to begin read
@@ -559,13 +604,15 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             boolean wasActive = isActive();
             try {
+                //模板设计模式：调用子类NioServerSocketChannel 的doBind()方法
                 doBind(localAddress);
             } catch (Throwable t) {
+                //绑定失败回调
                 safeSetFailure(promise, t);
                 closeIfClosed();
                 return;
             }
-
+            //从非活跃状态到活跃状态触发了 active 事件
             if (!wasActive && isActive()) {
                 invokeLater(new Runnable() {
                     @Override
@@ -574,7 +621,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     }
                 });
             }
-
+            //绑定成功回调通知
             safeSetSuccess(promise);
         }
 

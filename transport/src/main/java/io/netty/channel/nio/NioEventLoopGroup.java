@@ -34,6 +34,11 @@ import java.util.concurrent.ThreadFactory;
 
 /**
  * {@link MultithreadEventLoopGroup} implementations which is used for NIO {@link Selector} based {@link Channel}s.
+ *
+ * 1、创建一定数量的NioEventLoop线程组并初始化
+ * 2、创建线程选择器chooser。当获取线程时，通过选择器来获取。
+ * 3、创建线程工厂并构建线程执行器。
+ *
  */
 public class NioEventLoopGroup extends MultithreadEventLoopGroup {
 
@@ -164,10 +169,27 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         }
     }
 
+    /**
+     * NioEventLoop的初始化参数有6个：
+     * 第1个参数为NioEventLoopGroup线程组本身；
+     * 第2个参数为线程执行器，用于启动线程，在SingleThreadEventExecutor的doStartThread()方法中被调用；
+     * 第3个参数为NIO的Selector选择器的提供者；
+     * 第4个参数主要在NioEventLoop的run()方法中用于控制选择循环；
+     * 第5个参数为非I/O任务提交被拒绝时的处理Handler；
+     * 第6个参数为队列工厂，在NioEventLoop中，队列读是单线程操作，而队列写则可能是多线程操
+     * 作 ， 使 用 支 持 多 生 产 者 、 单 消 费 者 的 队 列 比 较 合 适 ， 默 认 为MpscChunkedArrayQueue队列。
+     * @param executor
+     * @param args
+     * @return
+     * @throws Exception
+     */
     @Override
     protected EventLoop newChild(Executor executor, Object... args) throws Exception {
+        //NIO的Selector选择器的提供者；
         SelectorProvider selectorProvider = (SelectorProvider) args[0];
+
         SelectStrategyFactory selectStrategyFactory = (SelectStrategyFactory) args[1];
+        //非I/O任务提交被拒绝时的处理Handler；
         RejectedExecutionHandler rejectedExecutionHandler = (RejectedExecutionHandler) args[2];
         EventLoopTaskQueueFactory taskQueueFactory = null;
         EventLoopTaskQueueFactory tailTaskQueueFactory = null;

@@ -720,6 +720,13 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         }
     }
 
+    /**
+     * 从addMessage()方法添加消息到缓存区开始，调用addFlush()方
+     * 法标识待发送的Entry，并调用AbstractUnsafe的flush0，最终到
+     * NioSocketChannel的doWrite()方法，才真正地把所有Entry的内容写
+     * 入了Socket中。
+     * @return
+     */
     @Override
     public ChannelHandlerContext flush() {
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_FLUSH);
