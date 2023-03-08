@@ -288,6 +288,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             }
             if (!taskQueue.offer(scheduledTask)) {
                 // No space left in the task queue add it back to the scheduledTaskQueue so we pick it up again.
+                // 任务队列中没有剩余空间，请将其添加回scheduledTaskQueue，以便我们再次拾取它。
                 scheduledTaskQueue.add((ScheduledFutureTask<?>) scheduledTask);
                 return false;
             }
@@ -445,6 +446,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         safeExecute(task);
         // Use taskQueue.poll() directly rather than pollTaskFrom() since the latter may
         // silently consume more than one item from the queue (skips over WAKEUP_TASK instances)
+        //直接使用taskQueue.poll（）而不是pollTaskFrom（），因为后者可能会默默地消耗队列中的多个项目（跳过WAKEUP_TASK实例）
         while (remaining-- > 0 && (task = taskQueue.poll()) != null) {
             safeExecute(task);
         }

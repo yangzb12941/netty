@@ -35,6 +35,26 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 虽然了解了Netty整个内存池管理的细节（包括它的内存分配的具
+ * 体逻辑），但是每次在从NioSocketChannel中读取数据时，应该分配
+ * 多少内存去读呢？例如，客户端发送的数据为1KB，若每次都分配8KB
+ * 的内存去读取数据，则会导致内存大量浪费；若分配16B的内存去读取
+ * 数据，那么需要64次才能全部读完，对性能有很大的影响。那么对于
+ * 这个问题，Netty是如何解决的呢？
+ *
+ * NioEventLoop线程在处理OP_READ事件，进入NioByteUnsafe循环
+ * 读 取 数 据 时 ， 使 用 了 两 个 类 来 处 理 内 存 的 分 配 ： 一 个 是
+ * ByteBufAllocator，PooledByteBufAllocator为它的默认实现类；另
+ * 一个是RecvByteBufAllocator，AdaptiveRecvByteBufAllocator是它
+ * 的 默 认 实 现 类 ， 在 DefaultChannelConfig 初 始 化 时 设 置 。
+ * PooledByteBufAllocator主要用来处理内存的分配，并最终委托
+ * PoolArena去完成。AdaptiveRecvByteBufAllocator主要用来计算每次
+ * 读循环时应该分配多少内存。NioByteUnsafe之所以需要循环读取，主
+ * 要是因为分配的初始ByteBuf不一定能够容纳读取到的所有数据。
+ *
+ * PooledByteBufAllocator主要用来处理内存的分配，并最终委托PoolArena去完成。
+ */
 public class PooledByteBufAllocator extends AbstractByteBufAllocator implements ByteBufAllocatorMetricProvider {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(PooledByteBufAllocator.class);

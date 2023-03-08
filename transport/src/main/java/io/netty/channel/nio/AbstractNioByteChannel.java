@@ -180,8 +180,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             try {
                 do {
                     //分配内存
+                    // allocator 根据计算器Handle计算此次需要分配多少内存并从内存池中分配
                     byteBuf = allocHandle.allocate(allocator);
                     //获取通道接收缓冲区的数据
+                    //设置最后一次分配内存大小加上每次读取的字节数
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
                     if (allocHandle.lastBytesRead() <= 0) {
                         // nothing was read. release the buffer.
@@ -204,7 +206,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     pipeline.fireChannelRead(byteBuf);
                     byteBuf = null;
                 } while (allocHandle.continueReading());
-                //读取操作完毕
+                //读取操作完毕，记录此次实际读取到的数据的大小，并预测下一次内存分配的大小
                 allocHandle.readComplete();
                 //触发Channel管道的fireChannelReadComplete事件
                 pipeline.fireChannelReadComplete();

@@ -188,13 +188,13 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
         if (elemSize == 0) {
             return true;
         }
-        int q = bitmapIdx >>> 6;
-        int r = bitmapIdx & 63;
-        assert (bitmap[q] >>> r & 1) != 0;
+        int q = bitmapIdx >>> 6;//由于long型是64位，因此除以64就是long[]bitmap的下标
+        int r = bitmapIdx & 63;//找到bitmap[q]对应的位置
+        assert (bitmap[q] >>> r & 1) != 0;//判断当前位是否为已分配状态
         bitmap[q] ^= 1L << r;
-
+        //将该位置设置为下一个可用的位置，这也是在分配时会发生nextAvail大于0的情况
         setNextAvail(bitmapIdx);
-
+        //若之前没有可分配的内存，从池中移除了，则将PoolSubpage继续添加到Arena的缓存池中，以便下回分配
         if (numAvail ++ == 0) {
             addToPool(head);
             /* When maxNumElems == 1, the maximum numAvail is also 1.
@@ -205,17 +205,20 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
                 return true;
             }
         }
-
+        //若还未释放内存，则直接返回
         if (numAvail != maxNumElems) {
             return true;
         } else {
             // Subpage not in use (numAvail == maxNumElems)
+            // 若内存全部被释放了，且池中没有其他的PoolSubpage，则不从池中移除，直接返回
             if (prev == next) {
                 // Do not remove if this subpage is the only one left in the pool.
                 return true;
             }
 
             // Remove this subpage from the pool if there are other subpages left in the pool.
+            // 若池中还有其他节点，且当前节点内存已经全部被释放，则从池中移除
+            // 并返回false，对其上的page也会进行相对应的回收
             doNotDestroy = false;
             removeFromPool();
             return false;

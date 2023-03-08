@@ -77,6 +77,37 @@ import static io.netty.buffer.PoolThreadCache.*;
  *   ( 75,    23,       21,        4,       yes,            no,        no)
  * <p>
  *   ( 76,    24,       22,        1,       yes,            no,        no)
+ *
+ *
+ *   SizeClasses 要求在包含之前定义 pageShifts，并反过来定义：
+ *   LOG2_SIZE_CLASS_GROUP：每次大小加倍的大小类计数的日志。
+ *   LOG2_MAX_LOOKUP_SIZE：查找表中最大大小类的日志。
+ *   sizeClasses：[index，log2Group，log2Delta，nDelta，isMultiPageSize，isSubPage，log2DdeltaLookup]元组的完整表。
+ *   index：大小类索引。
+ *   log2Group：组基本大小的日志（未添加增量）。
+ *   log2Delta：上一个大小类的增量日志。
+ *   nDelta：增量乘数。
+ *   isMultiPageSize：如果是页面大小的倍数，则为“yes”，否则为“no”。
+ *   isSubPage：如果是子页面大小类，则为“yes”，否则为“no”。
+ *   log2DeltaLookup：如果是查找表大小类，则与log2Delta相同，否则为“no”。
+ *   子页面：子页面大小类的数量。
+ *   nSizes：大小类的数量。
+ *   nPSizes：是pageSize的倍数的大小类的数量。
+ *   smallMaxSizeIdx：最大小型类索引。
+ *   lookupMaxClass：查找表中包含的最大大小类。
+ *   log2NormalMinClass：最小正常大小类的日志。
+ *
+ *   第一个大小类和间距为 1<<LOG2_QUANTUM。每个组有 1 << LOG2_SIZE_CLASS_GROUP。
+ *   size=1<<log2Group+nDelta（1<<log2Delta）第一个大小类具有不寻常的编码，
+ *   因为大小必须在group和deltanDelta之间拆分。
+ *
+ *   如果pageShift=13，sizeClasses如下所示：
+ *   （0，4，4，0，否，是，4）
+ *   （4，6，4，1，否，是，4）
+ *   （8，7，5，1，否，是，5）
+ *   。。。
+ *   （72，23，21，1，是，否，否）
+ *   （76、24、22、1、是、否、否）
  */
 abstract class SizeClasses implements SizeClassesMetric {
 
@@ -318,7 +349,7 @@ abstract class SizeClasses implements SizeClassesMetric {
         if (size == 0) {
             return 0;
         }
-        if (size > chunkSize) {
+        if (size > chunkSize) {//大于16MB
             return nSizes;
         }
 
@@ -385,6 +416,7 @@ abstract class SizeClasses implements SizeClassesMetric {
     }
 
     // Round size up to the nearest multiple of alignment.
+    // 将尺寸舍入到最接近的对齐倍数。
     private static int alignSizeIfNeeded(int size, int directMemoryCacheAlignment) {
         if (directMemoryCacheAlignment <= 0) {
             return size;

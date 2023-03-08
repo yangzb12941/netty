@@ -17,6 +17,7 @@ package io.netty.util;
 
 /**
  * Represents a supplier of {@code int}-valued results.
+ * 表示｛@code int｝值结果的提供者。
  */
 public interface IntSupplier {
 

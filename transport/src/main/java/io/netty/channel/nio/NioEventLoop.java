@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * {@link SingleThreadEventLoop} implementation which register the {@link Channel}'s to a
  * {@link Selector} and so does the multi-plexing of these in the event loop.
  *
- * 每 个NioEventLoop对象都与NIO中的多路复用器Selector一样，要管理成千
+ * 每个NioEventLoop对象都与NIO中的多路复用器Selector一样，要管理成千
  * 上万条链路，所有链路数据的读/写事件都由它来发起。
  *
  * • 开启Selector并初始化。
@@ -226,7 +226,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
      * Selector。在rebuildSelector()方法中也可调用openSelector()方法。
      *
      * 在NIO中开启Selector（1行代码），只需调用Selector.open()或
-     * SelectorProvider的openSelector()方法即可。Netty为Selector设置
+     * SelectorProvider 的 openSelector()方法即可。Netty为Selector设置
      * 了 优 化 开 关 ， 如 果 开 启 优 化 开 关 ， 则 通 过 反 射 加 载
      * sun.nio.ch.SelectorImpl 对 象 ， 并 通 过 已 经 优 化 过 的
      * SelectedSelectionKeySet 替 换 sun.nio.ch.SelectorImpl 对 象 中 的
@@ -295,6 +295,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     if (PlatformDependent.javaVersion() >= 9 && PlatformDependent.hasUnsafe()) {
                         // Let us try to use sun.misc.Unsafe to replace the SelectionKeySet.
                         // This allows us to also do this in Java9+ without any extra flags.
+                        //让我们尝试使用sun.misc.Unsafe替换SelectionKeySet。这使得我们也可以在Java9+中实现这一点，而不需要任何额外的标志。
                         long selectedKeysFieldOffset = PlatformDependent.objectFieldOffset(selectedKeysField);
                         long publicSelectedKeysFieldOffset =
                                 PlatformDependent.objectFieldOffset(publicSelectedKeysField);
@@ -475,6 +476,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         // Register all channels to the new Selector.
+        // 将所有通道注册到新选择器。
         int nChannels = 0;
         //遍历旧的Selector上的key
         for (SelectionKey key: oldSelector.keys()) {
@@ -572,6 +574,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         } finally {
                             // This update is just to help block unnecessary selector wakeups
                             // so use of lazySet is ok (no race condition)
+                            // 这个更新只是为了帮助阻止不必要的选择器唤醒，所以lazySet的使用是可以的（没有比赛条件)
                             nextWakeupNanos.lazySet(AWAKE);
                         }
                         // fall through

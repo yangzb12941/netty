@@ -497,7 +497,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
     /**
      * Create / initialize a new PoolSubpage of normCapacity. Any PoolSubpage created / initialized here is added to
      * subpage pool in the PoolArena that owns this PoolChunk
-     *
+     * 当申请内存小于8KB时，此方法被调用
      * @param sizeIdx sizeIdx of normalized size
      *
      * @return index in memoryMap
@@ -505,9 +505,13 @@ final class PoolChunk<T> implements PoolChunkMetric {
     private long allocateSubpage(int sizeIdx) {
         // Obtain the head of the PoolSubPage pool that is owned by the PoolArena and synchronize on it.
         // This is need as we may add it back and so alter the linked-list structure.
+        // 获取PoolArena拥有的PoolSubPage池的头部并在其上进行同步。这是需要的，因为我们可能会将其添加回去，从而更改链接列表结构。
+        //通过优化后的内存容量找到Arena的两个subpages 缓存池中一个的对应空间head指针
         PoolSubpage<T> head = arena.findSubpagePoolHead(sizeIdx);
+        //由于分配前需要把 PoolSubpage 加入到缓存池中，以便下回直接从Arena的缓存池中获取
         synchronized (head) {
             //allocate a new run
+            // 获取一个可用的节点
             int runSize = calculateRunSize(sizeIdx);
             //runSize must be multiples of pageSize
             long runHandle = allocateRun(runSize);
@@ -518,11 +522,12 @@ final class PoolChunk<T> implements PoolChunkMetric {
             int runOffset = runOffset(runHandle);
             assert subpages[runOffset] == null;
             int elemSize = arena.sizeIdx2size(sizeIdx);
-
+            // 初始化一个 PoolSubpage，调用PoolSubpage的addToPool()方法把subpage追加到head的后面。
             PoolSubpage<T> subpage = new PoolSubpage<T>(head, this, pageShifts, runOffset,
                                runSize(pageShifts, runHandle), elemSize);
 
             subpages[runOffset] = subpage;
+            //PoolSubpage的内存分配
             return subpage.allocate();
         }
     }
@@ -531,13 +536,30 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * Free a subpage or a run of pages When a subpage is freed from PoolSubpage, it might be added back to subpage pool
      * of the owning PoolArena. If the subpage pool in PoolArena has at least one other PoolSubpage of given elemSize,
      * we can completely free the owning Page so it is available for subsequent allocations
-     *
+     *内存的释放相对其分配来说要简单很多，下面主要剖析PoolChunk
+     * 和PoolSubpage的释放。当内存释放时，同样先根据handle指针找到内
+     * 存在PoolChunk和PoolSubpage中的相对偏移量，具体释放步骤如下。
+     * （1）若在PoolSubpage上的偏移量大于0，则交给PoolSubpage去
+     * 释放，这与PoolSubpage内存申请有些相似，根据PoolSubpage内存分
+     * 配段的偏移位bitmapIdx找到long[]数组bitmap的索引q，将bitmap[q]
+     * 的 具 体 内 存 占 用 位 r 置 为 0 （ 表 示 释 放 ） 。 同 时 调 整 Arena 中 的
+     * PoolSubpage缓存池，若PoolSubpage已全部释放了，且池中除了它还
+     * 有其他节点，则从池中移除；若由于之前PoolSubpage的内存段全部分
+     * 配完并从池中移除过，则在其当前可用内存段numAvail等于-1且
+     * PoolSubpage 释 放 后 ， 对 可 用 内 存 段 进 行 “++” 运 算 ， 从 而 使
+     * numAvail++ 等 于 0 ， 此 时 会 把 释 放 的 PoolSubpage 追 加 到 Arena 的
+     * PoolSubpage缓存池中，方便下次直接从缓冲池中获取。
+     * （2）若在PoolSubpage上的偏移量等于0，或者PoolSubpage释放
+     * 完 后 返 回 false （ PoolSubpage 已 全 部 释 放 完 ， 同 时 从 Arena 的
+     * PoolSubpage缓存池中移除了），则只需更新PoolChunk二叉树对应节
+     * 点的高度值，并更新其所有父节点的高度值及可用字节数即可。
      * @param handle handle to free
      */
     void free(long handle, int normCapacity, ByteBuffer nioBuffer) {
         int runSize = runSize(pageShifts, handle);
-        if (isSubpage(handle)) {
+        if (isSubpage(handle)) {//先释放subpage
             int sizeIdx = arena.size2SizeIdx(normCapacity);
+            //与分配时一样，先去Arena池中找到subpage对应的head指针
             PoolSubpage<T> head = arena.findSubpagePoolHead(sizeIdx);
 
             int sIdx = runOffset(handle);
@@ -546,7 +568,9 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
             // Obtain the head of the PoolSubPage pool that is owned by the PoolArena and synchronize on it.
             // This is need as we may add it back and so alter the linked-list structure.
+            // 获取PoolArena拥有的PoolSubPage池的头部并在其上进行同步。这是需要的，因为我们可能会将其添加回去，从而更改链接列表结构。
             synchronized (head) {
+                //获取32位bitmap交给PoolSubpage释放。释放后返回true，不再继续释放
                 if (subpage.free(head, bitmapIdx(handle))) {
                     //the subpage is still used, do not free it
                     return;
@@ -569,11 +593,13 @@ final class PoolChunk<T> implements PoolChunkMetric {
             finalRun &= ~(1L << IS_SUBPAGE_SHIFT);
 
             insertAvailRun(runOffset(finalRun), runPages(finalRun), finalRun);
+            //释放的字节数调整
             freeBytes += runSize;
         }
 
         if (nioBuffer != null && cachedNioBuffers != null &&
             cachedNioBuffers.size() < PooledByteBufAllocator.DEFAULT_MAX_CACHED_BYTEBUFFERS_PER_CHUNK) {
+            //把nioBuffer放入缓存队列中，以便下次直接使用
             cachedNioBuffers.offer(nioBuffer);
         }
     }

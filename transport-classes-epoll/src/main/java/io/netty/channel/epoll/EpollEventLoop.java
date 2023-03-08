@@ -42,6 +42,16 @@ import static java.lang.Math.min;
 
 /**
  * {@link EventLoop} which uses epoll under the covers. Only works on Linux!
+ * Java NIO根据操作系统不同，比如macosx是KQueueSelectorProvider、windows有WindowsSelectorProvider/
+   Linux有EPollSelectorProvider或PollSelectorProvider，可见不同的系统对nio的selector有不同的实现。
+ * Oracle jdk会自动选择合适的Selector，为什么Netty还要提供一个基于epoll的实现呢？
+ * （1）Netty的epoll transport使用edge-triggered，而javar的nio使用level-triggered.
+ * （2）Netty的epoll transport暴漏了更多的nio没有的配置参数.
+ * （3）c代码，更少gc，更少synchronized
+ *
+ * EpollEventLoopGroup 通过 native 方法,可以直接操作Liunx下的 socket 文件描述符
+ * 能带来Linux下的性能提升.这种做法其实就跟使用C++在linux下用epoll_wait()\epoll_create()\epoll_ctl()方法
+ * 一样了.
  */
 class EpollEventLoop extends SingleThreadEventLoop {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(EpollEventLoop.class);
@@ -51,6 +61,7 @@ class EpollEventLoop extends SingleThreadEventLoop {
     static {
         // Ensure JNI is initialized by the time this class is loaded by this time!
         // We use unix-common methods in this class which are backed by JNI methods.
+        // 确保在此时加载该类时已初始化JNI！我们在这个类中使用由JNI方法支持的unix通用方法。
         Epoll.ensureAvailability();
     }
 
@@ -110,6 +121,7 @@ class EpollEventLoop extends SingleThreadEventLoop {
             try {
                 // It is important to use EPOLLET here as we only want to get the notification once per
                 // wakeup and don't call eventfd_read(...).
+                // 在这里使用EPOLLET很重要，因为我们只想在每次唤醒时获得一次通知，而不调用eventfd_read（…）。
                 Native.epollCtlAdd(epollFd.intValue(), eventFd.intValue(), Native.EPOLLIN | Native.EPOLLET);
             } catch (IOException e) {
                 throw new IllegalStateException("Unable to add eventFd filedescriptor to epoll", e);
@@ -118,6 +130,7 @@ class EpollEventLoop extends SingleThreadEventLoop {
             try {
                 // It is important to use EPOLLET here as we only want to get the notification once per
                 // wakeup and don't call read(...).
+                // 在这里使用EPOLLET很重要，因为我们只想在每次唤醒时获得一次通知，而不调用read（…）。
                 Native.epollCtlAdd(epollFd.intValue(), timerFd.intValue(), Native.EPOLLIN | Native.EPOLLET);
             } catch (IOException e) {
                 throw new IllegalStateException("Unable to add timerFd filedescriptor to epoll", e);

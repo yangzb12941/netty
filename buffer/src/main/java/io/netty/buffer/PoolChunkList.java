@@ -117,10 +117,14 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     boolean free(PoolChunk<T> chunk, long handle, int normCapacity, ByteBuffer nioBuffer) {
+        //先调用chunk的free()方法，把内存标记为已释放
         chunk.free(handle, normCapacity, nioBuffer);
         if (chunk.freeBytes > freeMaxThreshold) {
+            //若内存利用率小于minUsage,则此时需要把PoolChunk从当前PoolChunkList
+            //中移除
             remove(chunk);
             // Move the PoolChunk down the PoolChunkList linked-list.
+            //把移除的PoolChunk移动到前一个PoolChunkList中
             return move0(chunk);
         }
         return true;
@@ -144,12 +148,14 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
      * {@link PoolChunkList} that has the correct minUsage / maxUsage in respect to {@link PoolChunk#usage()}.
      */
     private boolean move0(PoolChunk<T> chunk) {
+        //当前PoolChunkList 为q000时，直接物理释放
         if (prevList == null) {
             // There is no previous PoolChunkList so return false which result in having the PoolChunk destroyed and
             // all memory associated with the PoolChunk will be released.
             assert chunk.usage() == 0;
             return false;
         }
+        //把PoolChunk移到前面的PoolChunkList中。
         return prevList.move(chunk);
     }
 
@@ -179,15 +185,16 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     private void remove(PoolChunk<T> cur) {
-        if (cur == head) {
-            head = cur.next;
+        if (cur == head) {//当前chunk为PoolChunkList的第一个
+            head = cur.next;//把chunk的下一个元素变成PoolChunkList的第一个元素
             if (head != null) {
                 head.prev = null;
             }
-        } else {
+        } else {//修改指针指向
             PoolChunk<T> next = cur.next;
-            cur.prev.next = next;
-            if (next != null) {
+            cur.prev.next = next;//把chunk前面的chunk的next指针指向当前chunk的next
+            if (next != null) {//若当前chunk的下一个chunk不为空
+                //则把当前chunk的下一个chunk的prev指针从当前chunk改成当前chunk的前一个元素。
                 next.prev = cur.prev;
             }
         }

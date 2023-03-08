@@ -54,6 +54,7 @@ public interface SelectStrategy {
      * @return {@link #SELECT} if the next step should be blocking select {@link #CONTINUE} if
      *         the next step should be to not select but rather jump back to the IO loop and try
      *         again. Any value >= 0 is treated as an indicator that work needs to be done.
+     *
      *         ｛@link #SELECT｝如果下一步应该是阻塞的，那么选择｛@link #CONTINUE｝，
      *         如果下一步骤应该是不选择而是跳回到IO循环并重试。任何大于等于0的值都被视为需要完成工作的指标。
      */

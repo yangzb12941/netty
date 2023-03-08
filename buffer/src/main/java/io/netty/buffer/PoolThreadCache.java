@@ -50,6 +50,8 @@ final class PoolThreadCache {
     final PoolArena<ByteBuffer> directArena;
 
     // Hold the caches for the different size classes, which are small and normal.
+    // 每 种 类 型 的 内 存 都 有 一 个MemoryRegionCache数组与之对应。
+    // MemoryRegionCache中有个队列，这个队列主要是用来存放内存对象的
     private final MemoryRegionCache<byte[]>[] smallSubPageHeapCaches;
     private final MemoryRegionCache<ByteBuffer>[] smallSubPageDirectCaches;
     private final MemoryRegionCache<byte[]>[] normalHeapCaches;

@@ -59,6 +59,15 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
     }
 
     /**
+     * SelectorProvider.provider()
+     * 返回此Java虚拟机调用的系统范围默认选择器提供程序。 该方法的第一次调用定位默认提供程序对象，
+     * 如下所示： 如果定义了系统属性java.nio.chhannels.spi.SelectorProvider，
+     * 则将其视为具体提供程序类的完全限定名称。
+     * 类被加载并实例化；如果此过程失败，则抛出未指定的错误。
+     * 如果提供程序类已安装在系统类加载器可见的jar文件中，并且该jar文件包含资源目录
+     * META-INF/services中名为java.nio.chhannels.spi.SelectProvider的提供程序配置文件，
+     * 则采用该文件中指定的第一个类名。类被加载并实例化；如果此过程失败，则抛出未指定的错误。
+     * 最后，如果上述任何方法都没有指定提供程序，则实例化系统默认提供程序类并返回结果。 此方法的后续调用返回第一次调用返回的提供程序。
      * Create a new instance using the default number of threads, the given {@link ThreadFactory} and the
      * {@link SelectorProvider} which is returned by {@link SelectorProvider#provider()}.
      */

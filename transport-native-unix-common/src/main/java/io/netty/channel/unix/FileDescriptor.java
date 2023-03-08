@@ -31,6 +31,8 @@ import static java.lang.Math.min;
 /**
  * Native {@link FileDescriptor} implementation which allows to wrap an {@code int} and provide a
  * {@link FileDescriptor} for it.
+ *
+ * 本机FileDescriptor实现，允许包装int并为其提供FileDescriptor。
  */
 public class FileDescriptor {
 
@@ -69,6 +71,7 @@ public class FileDescriptor {
                 return false;
             }
             // Once a close operation happens, the channel is considered shutdown.
+            // 一旦发生关闭操作，通道即视为关闭。
             if (casState(state, state | STATE_ALL_MASK)) {
                 return true;
             }

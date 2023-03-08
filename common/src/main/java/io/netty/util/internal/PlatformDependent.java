@@ -479,6 +479,7 @@ public final class PlatformDependent {
     /**
      * Try to deallocate the specified direct {@link ByteBuffer}. Please note this method does nothing if
      * the current platform does not support this operation or the specified buffer is not a direct buffer.
+     * 尝试释放指定的直接｛@link ByteBuffer｝。请注意，如果当前平台不支持此操作或指定的缓冲区不是直接缓冲区，则此方法不会执行任何操作。
      */
     public static void freeDirectBuffer(ByteBuffer buffer) {
         CLEANER.freeDirectBuffer(buffer);
@@ -763,6 +764,7 @@ public final class PlatformDependent {
     /**
      * This method <strong>MUST</strong> only be called for {@link ByteBuffer}s that were allocated via
      * {@link #allocateDirectNoCleaner(int)}.
+     * 此方法<strong>必须<strong>仅对通过｛@link allocateDirectNoCleaner（int）｝分配的｛@linkByteBuffer｝调用。
      */
     public static void freeDirectNoCleaner(ByteBuffer buffer) {
         assert USE_DIRECT_BUFFER_NO_CLEANER;
